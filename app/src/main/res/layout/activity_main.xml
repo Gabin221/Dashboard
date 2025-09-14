@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:orientation="vertical" android:padding="16dp"
+    android:layout_width="match_parent" android:layout_height="match_parent">
+
+    <!-- Header: large map placeholder (will réserver la largeur entière) -->
+    <FrameLayout
+        android:id="@+id/gps_container"
+        android:layout_width="match_parent"
+        android:layout_height="200dp"
+        android:background="#222"
+        android:contentDescription="Espace réservé pour la carte GPS"/>
+
+    <!-- Dashboard values -->
+    <TextView android:id="@+id/tvSpeed" android:text="Vitesse: -- km/h" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+    <TextView android:id="@+id/tvRpm" android:text="Tours: -- tours/minute" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+    <TextView android:id="@+id/tvInstCons" android:text="Conso instant: -- L/100km" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+    <TextView android:id="@+id/tvAvgCons" android:text="Conso moy (last): -- L/100km" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+    <TextView android:id="@+id/tvFuelLevel" android:text="Jauge: -- %" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+    <TextView android:id="@+id/tvRange" android:text="Autonomie: -- km" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+    <TextView android:id="@+id/tvCoolantTemp" android:text="Temp eau: -- °C" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+    <TextView android:id="@+id/tvOilTemp" android:text="Temp huile: -- °C (si dispo)" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+
+</LinearLayout>
