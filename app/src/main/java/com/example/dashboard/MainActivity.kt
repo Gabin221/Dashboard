@@ -9,6 +9,8 @@ import android.bluetooth.BluetoothSocket
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
+import android.widget.Button
+import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -35,6 +37,8 @@ data class VehicleDataSample(
 )
 
 class MainActivity : AppCompatActivity() {
+    private lateinit var spinnerMac: Spinner
+    private lateinit var btnConnect: Button
 
     private val TAG = "MainActivityIntegrated"
     private val OBD_STANDARD_SERIAL_UUID: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
@@ -82,8 +86,18 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        println("!!!!!!!!!!!!!!!! dans le onCreate")
         initializeViews()
         resetUI()
+
+        spinnerMac = findViewById(R.id.spinnerMac)
+        btnConnect = findViewById(R.id.btnConnect)
+
+        btnConnect.setOnClickListener {
+            val selectedMac = spinnerMac.selectedItem.toString()
+            Log.i("MainActivity", "Connexion avec $selectedMac")
+            connectAndStartObdRealDevice(selectedMac)
+        }
     }
 
     private fun initializeViews() {
@@ -117,7 +131,7 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "Bluetooth non activé.", Toast.LENGTH_SHORT).show()
             return
         }
-        Log.d(TAG, "Tentative de connexion à $macAddress")
+        println("!!!!!!!!!!!!!!!! Tentative de connexion à $macAddress")
         Toast.makeText(this, "Connexion à l'OBD...", Toast.LENGTH_SHORT).show()
 
         obdJob = CoroutineScope(Dispatchers.IO).launch {
@@ -125,27 +139,27 @@ class MainActivity : AppCompatActivity() {
                 val device: BluetoothDevice = btAdapter.getRemoteDevice(macAddress)
                 obdSocket = device.createRfcommSocketToServiceRecord(OBD_STANDARD_SERIAL_UUID)
                 obdSocket!!.connect()
-                val input = obdSocket!!.inputStream
-                val output = obdSocket!!.outputStream
-                try {
-                    output.write("ATZ\r".toByteArray())
-                    output.flush()
-
-                    val reader = BufferedReader(InputStreamReader(input))
-                    val sb = StringBuilder()
-                    val deadline = System.currentTimeMillis() + 1000
-                    while (System.currentTimeMillis() < deadline) {
-                        if (reader.ready()) {
-                            val line = reader.readLine()
-                            if (line != null) sb.append(line).append("\n")
-                        } else {
-                            delay(50)
-                        }
-                    }
-                    Log.i(TAG, "ELM reply (ATZ): ${sb.toString().trim()}")
-                } catch (e: Exception) {
-                    Log.e(TAG, "ATZ test failed: ${e.message}", e)
-                }
+//                val input = obdSocket!!.inputStream
+//                val output = obdSocket!!.outputStream
+//                try {
+//                    output.write("ATZ\r".toByteArray())
+//                    output.flush()
+//
+//                    val reader = BufferedReader(InputStreamReader(input))
+//                    val sb = StringBuilder()
+//                    val deadline = System.currentTimeMillis() + 1000
+//                    while (System.currentTimeMillis() < deadline) {
+//                        if (reader.ready()) {
+//                            val line = reader.readLine()
+//                            if (line != null) sb.append(line).append("\n")
+//                        } else {
+//                            delay(50)
+//                        }
+//                    }
+//                    Log.i(TAG, "ELM reply (ATZ): ${sb.toString().trim()}")
+//                } catch (e: Exception) {
+//                    Log.e(TAG, "ATZ test failed: ${e.message}", e)
+//                }
 
                 obdConnection = ObdDeviceConnection(obdSocket!!.inputStream, obdSocket!!.outputStream)
 
@@ -173,7 +187,7 @@ class MainActivity : AppCompatActivity() {
 
     private suspend fun startObdDataPolling() {
         val connection = obdConnection ?: return
-        Log.d(TAG, "Démarrage de la lecture des données OBD.")
+        println("!!!!!!!!!!!!!!!! Démarrage de la lecture des données OBD.")
         while (obdSocket?.isConnected == true) {
             val currentSample = VehicleDataSample()
             try {
@@ -214,7 +228,7 @@ class MainActivity : AppCompatActivity() {
             }
             delay(1000)
         }
-        Log.d(TAG, "Arrêt de la lecture des données OBD (boucle terminée).")
+        println("!!!!!!!!!!!!!!!! Arrêt de la lecture des données OBD (boucle terminée).")
         if (obdSocket?.isConnected != true) {
             withContext(Dispatchers.Main) {
                 Toast.makeText(this@MainActivity, "Connexion OBD perdue.", Toast.LENGTH_LONG).show()
@@ -225,7 +239,7 @@ class MainActivity : AppCompatActivity() {
 
 
     private fun stopObdOperations(resetButtons: Boolean = true) {
-        Log.d(TAG, "Arrêt de toutes les opérations OBD/Mock.")
+        println("!!!!!!!!!!!!!!!! Arrêt de toutes les opérations OBD/Mock.")
         mockDataJob?.cancel()
         mockDataJob = null
 
@@ -311,7 +325,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        Log.d(TAG, "onDestroy: Arrêt des opérations OBD.")
+        println("!!!!!!!!!!!!!!!! onDestroy: Arrêt des opérations OBD.")
         stopObdOperations(resetButtons = false)
     }
 }

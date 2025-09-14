@@ -1,3 +1,7 @@
 <resources>
     <string name="app_name">Dashboard</string>
+    <string-array name="mac_addresses">
+        <item>CC:47:40:87:EE:20</item>
+        <item>66:1E:11:0E:2E:4E</item>
+    </string-array>
 </resources>

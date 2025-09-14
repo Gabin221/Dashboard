@@ -3,6 +3,18 @@
     android:orientation="vertical" android:padding="16dp"
     android:layout_width="match_parent" android:layout_height="match_parent">
 
+    <Spinner
+        android:id="@+id/spinnerMac"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:entries="@array/mac_addresses" />
+
+    <Button
+        android:id="@+id/btnConnect"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Se connecter" />
+
     <!-- Header: large map placeholder (will réserver la largeur entière) -->
     <FrameLayout
         android:id="@+id/gps_container"
