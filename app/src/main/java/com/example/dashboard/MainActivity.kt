@@ -15,6 +15,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import com.github.eltonvs.obd.command.ObdCommand
 import com.github.eltonvs.obd.command.ObdResponse
 import com.github.eltonvs.obd.command.engine.MassAirFlowCommand
 import com.github.eltonvs.obd.command.engine.RPMCommand
@@ -26,6 +27,11 @@ import java.io.BufferedReader
 import java.io.IOException
 import java.io.InputStreamReader
 import java.util.UUID
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
 
 data class VehicleDataSample(
     val timestamp: Long = System.currentTimeMillis(),
@@ -37,6 +43,9 @@ data class VehicleDataSample(
 )
 
 class MainActivity : AppCompatActivity() {
+    private lateinit var btnSniffer: Button // Ajoute cette variable
+    private var snifferJob: Job? = null     // Job pour notre sniffer
+    private lateinit var logs: TextView
     private lateinit var spinnerMac: Spinner
     private lateinit var btnConnect: Button
 
@@ -92,12 +101,96 @@ class MainActivity : AppCompatActivity() {
 
         spinnerMac = findViewById(R.id.spinnerMac)
         btnConnect = findViewById(R.id.btnConnect)
+        btnSniffer = findViewById(R.id.btnSniffer) // Initialise le nouveau bouton
+        logs = findViewById(R.id.logs)
 
         btnConnect.setOnClickListener {
             val selectedMac = spinnerMac.selectedItem.toString()
             Log.i("MainActivity", "Connexion avec $selectedMac")
+            stopAllJobs() // Arrête les autres tâches avant de lancer la connexion principale
             connectAndStartObdRealDevice(selectedMac)
         }
+
+        // Le listener pour notre outil de diagnostic
+        btnSniffer.setOnClickListener {
+            val selectedMac = spinnerMac.selectedItem.toString()
+            // Ceci est sur le thread UI - OK
+            logs.text = "${logs.text}\nTentative de lancement du sniffer sur $selectedMac..."
+            stopAllJobs() // Arrête les autres tâches avant de lancer le sniffer
+            startRawDataSniffer(selectedMac)
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun startRawDataSniffer(macAddress: String) {
+        val btAdapter = bluetoothAdapter
+        if (btAdapter == null || !btAdapter.isEnabled) {
+            Toast.makeText(this, "Bluetooth non activé.", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        snifferJob = CoroutineScope(Dispatchers.IO).launch {
+            try {
+                // Modification de l'UI: basculer vers le thread principal
+                withContext(Dispatchers.Main) {
+                    logs.text = "${logs.text} \ndébut du snif sur $macAddress" // Ajout de macAddress pour clarté
+                    Toast.makeText(this@MainActivity, "Sniffer: Connexion...", Toast.LENGTH_SHORT).show()
+                }
+
+                val device: BluetoothDevice = btAdapter.getRemoteDevice(macAddress)
+                logs.text = "${logs.text} \ndevice check"
+                val socket = device.createInsecureRfcommSocketToServiceRecord(OBD_STANDARD_SERIAL_UUID)
+                logs.text = "${logs.text} \nsocket check"
+                socket.connect()
+                logs.text = "${logs.text} \nsocket connect check"
+
+                withContext(Dispatchers.Main) {
+                    logs.text = "${logs.text} \nConnecté et initialisé!"
+                    Toast.makeText(this@MainActivity, "Sniffer: Connecté ! J'écoute...", Toast.LENGTH_LONG).show()
+                }
+
+                val inputStream = socket.inputStream
+                logs.text = "${logs.text} \ninputStream check"
+                val reader = BufferedReader(InputStreamReader(inputStream))
+                logs.text = "${logs.text} \nreader check"
+
+                while (isActive) {
+                    if (reader.ready()) {
+                        val line = reader.readLine()
+                        // Modification de l'UI: basculer vers le thread principal
+                        withContext(Dispatchers.Main) {
+                            logs.text = "${logs.text}\nSniffer data: $line" // Amélioration du format du log
+                        }
+                    } else {
+                        delay(100)
+                    }
+                }
+            } catch (e: Exception) {
+                // Modification de l'UI: basculer vers le thread principal
+                withContext(Dispatchers.Main) {
+                    logs.text = "${logs.text}\nErreur du sniffer: ${e.message}"
+                    Toast.makeText(this@MainActivity, "Erreur Sniffer: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            } finally {
+                // S'assurer que le socket est fermé même en cas d'erreur ou d'annulation
+                try {
+                    obdSocket?.close() // Si c'est le même socket utilisé par le sniffer et l'OBD.
+                    // Idéalement, le sniffer aurait son propre socket.
+                    // Pour l'instant, on suppose qu'il peut être partagé ou que stopAllJobs s'en charge.
+                } catch (ioe: IOException) {
+                    Log.w(TAG, "Erreur à la fermeture du socket du sniffer: ${ioe.message}")
+                }
+            }
+        }
+    }
+
+    // Une petite fonction utilitaire pour arrêter les tâches en cours avant d'en lancer une autre
+    private fun stopAllJobs() {
+        obdJob?.cancel()
+        snifferJob?.cancel()
+        try {
+            obdSocket?.close()
+        } catch (e: IOException) { /* ignore */ }
     }
 
     private fun initializeViews() {
@@ -124,6 +217,10 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // Dans MainActivity.kt
+
+// ... (imports et début de la classe)
+
     @SuppressLint("MissingPermission")
     private fun connectAndStartObdRealDevice(macAddress: String) {
         val btAdapter = bluetoothAdapter
@@ -131,60 +228,114 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "Bluetooth non activé.", Toast.LENGTH_SHORT).show()
             return
         }
-        println("!!!!!!!!!!!!!!!! Tentative de connexion à $macAddress")
+        Log.d(TAG, "Tentative de connexion à $macAddress")
         Toast.makeText(this, "Connexion à l'OBD...", Toast.LENGTH_SHORT).show()
 
         obdJob = CoroutineScope(Dispatchers.IO).launch {
             try {
                 val device: BluetoothDevice = btAdapter.getRemoteDevice(macAddress)
-                obdSocket = device.createRfcommSocketToServiceRecord(OBD_STANDARD_SERIAL_UUID)
+                obdSocket = device.createInsecureRfcommSocketToServiceRecord(OBD_STANDARD_SERIAL_UUID)
                 obdSocket!!.connect()
-//                val input = obdSocket!!.inputStream
-//                val output = obdSocket!!.outputStream
-//                try {
-//                    output.write("ATZ\r".toByteArray())
-//                    output.flush()
-//
-//                    val reader = BufferedReader(InputStreamReader(input))
-//                    val sb = StringBuilder()
-//                    val deadline = System.currentTimeMillis() + 1000
-//                    while (System.currentTimeMillis() < deadline) {
-//                        if (reader.ready()) {
-//                            val line = reader.readLine()
-//                            if (line != null) sb.append(line).append("\n")
-//                        } else {
-//                            delay(50)
-//                        }
-//                    }
-//                    Log.i(TAG, "ELM reply (ATZ): ${sb.toString().trim()}")
-//                } catch (e: Exception) {
-//                    Log.e(TAG, "ATZ test failed: ${e.message}", e)
-//                }
-
-                obdConnection = ObdDeviceConnection(obdSocket!!.inputStream, obdSocket!!.outputStream)
 
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(this@MainActivity, "Connecté à l'OBD!", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@MainActivity, "Socket Connecté! Initialisation...", Toast.LENGTH_SHORT).show()
+                }
+
+                // ÉTAPE 1: On initialise le dongle manuellement en utilisant les flux bruts
+                val inputStream = obdSocket!!.inputStream
+                val outputStream = obdSocket!!.outputStream
+
+                val initSuccess = initializeElm327(inputStream, outputStream)
+                if (!initSuccess) {
+                    throw IOException("Échec de l'initialisation de l'ELM327.")
+                }
+
+                // ÉTAPE 2: L'initialisation a réussi, on peut maintenant passer les flux à la librairie
+                obdConnection = ObdDeviceConnection(inputStream, outputStream)
+
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@MainActivity, "Connecté et initialisé!", Toast.LENGTH_SHORT).show()
                     Log.i(TAG, "Connecté avec succès à l'appareil OBD.")
                 }
                 startObdDataPolling()
-            } catch (e: IOException) {
-                Log.e(TAG, "Erreur de connexion Bluetooth: ${e.message}", e)
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Erreur de connexion ou d'initialisation: ${e.message}", e)
                 withContext(Dispatchers.Main) {
                     Toast.makeText(this@MainActivity, "Échec connexion: ${e.message}", Toast.LENGTH_LONG).show()
                     stopObdOperations(resetButtons = true)
-                }
-            } catch (e: SecurityException) {
-                Log.e(TAG, "Erreur de permission lors de la connexion: ${e.message}", e)
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(this@MainActivity, "Erreur permission: ${e.message}", Toast.LENGTH_LONG).show()
-                    stopObdOperations(resetButtons = true)
-                    requestBluetoothPermissions()
+                    if (e is SecurityException) {
+                        requestBluetoothPermissions()
+                    }
                 }
             }
         }
     }
 
+    /**
+     * Envoie des commandes AT à l'adaptateur et lit les réponses pour le configurer.
+     * C'est une communication bas niveau, directe avec l'appareil.
+     */
+    private suspend fun initializeElm327(inputStream: java.io.InputStream, outputStream: java.io.OutputStream): Boolean {
+        val initCommands = listOf("ATZ", "ATE0", "ATL0", "ATSP0")
+        val reader = BufferedReader(InputStreamReader(inputStream))
+
+        try {
+            // On lit et vide tout ce qui pourrait être dans le buffer de réception au début
+            while (reader.ready()) {
+                Log.d(TAG, "Nettoyage buffer initial: ${reader.readLine()}")
+            }
+
+            for (command in initCommands) {
+                Log.d(TAG, "Envoi de la commande d'init: $command")
+                // On envoie la commande suivie d'un retour chariot, c'est crucial
+                outputStream.write("$command\r".toByteArray())
+                outputStream.flush()
+
+                delay(200) // Laisse le temps à l'appareil de traiter
+
+                // Maintenant, on lit la réponse. Les adaptateurs ELM327 finissent leur réponse par '>'
+                val response = StringBuilder()
+                val timeout = System.currentTimeMillis() + 2000 // Timeout de 2 secondes
+                var line: String?
+
+                while (System.currentTimeMillis() < timeout) {
+                    if (reader.ready()) {
+                        line = reader.readLine()
+                        if (line != null) {
+                            response.append(line).append("\n")
+                            // Si la réponse contient le prompt, c'est qu'il a fini de parler
+                            if (line.contains(">")) {
+                                break
+                            }
+                        }
+                    } else {
+                        delay(50)
+                    }
+                }
+
+                val trimmedResponse = response.toString().trim()
+                Log.i(TAG, "Réponse à '$command': $trimmedResponse")
+
+                // Si la réponse est vide ou ne contient pas "OK" (pour ATZ par exemple), on considère que c'est un échec
+                if (trimmedResponse.isEmpty() || (command == "ATZ" && !trimmedResponse.contains("ELM", ignoreCase = true))) {
+                    // Pour ATZ, on attend une réponse qui contient "ELM". Pour les autres, une simple réponse suffit.
+                    if (command == "ATZ" && !trimmedResponse.contains("ELM", ignoreCase = true)) {
+                        Log.e(TAG, "Réponse invalide pour ATZ. L'adaptateur n'est peut-être pas un ELM327.")
+                        // On peut décider de continuer quand même, certains clones sont silencieux
+                    } else if (trimmedResponse.isEmpty()){
+                        Log.e(TAG, "Pas de réponse pour la commande $command")
+                        return false
+                    }
+                }
+            }
+            Log.i(TAG, "Initialisation ELM327 réussie.")
+            return true
+        } catch (e: Exception) {
+            Log.e(TAG, "Erreur durant l'initialisation de l'ELM327: ${e.message}", e)
+            return false
+        }
+    }
     private suspend fun startObdDataPolling() {
         val connection = obdConnection ?: return
         println("!!!!!!!!!!!!!!!! Démarrage de la lecture des données OBD.")
@@ -240,12 +391,14 @@ class MainActivity : AppCompatActivity() {
 
     private fun stopObdOperations(resetButtons: Boolean = true) {
         println("!!!!!!!!!!!!!!!! Arrêt de toutes les opérations OBD/Mock.")
-        mockDataJob?.cancel()
+        mockDataJob?.cancel() // mockDataJob n'est pas utilisé dans cette version du code. À supprimer ?
         mockDataJob = null
 
         obdJob?.cancel()
         obdJob = null
 
+        // Le socket utilisé par le sniffer et l'OBD est le même 'obdSocket'.
+        // La fermeture ici affectera les deux. C'est implicite par stopAllJobs aussi.
         try {
             obdSocket?.close()
         } catch (e: IOException) {
@@ -254,14 +407,14 @@ class MainActivity : AppCompatActivity() {
         obdSocket = null
         obdConnection = null
 
-        if (resetButtons) {
-            runOnUiThread {
+        // Opérations UI
+        runOnUiThread {
+            if (resetButtons) {
                 resetUI()
             }
+            Toast.makeText(this, "Opérations OBD arrêtées.", Toast.LENGTH_SHORT).show()
         }
-        Toast.makeText(this, "Opérations OBD arrêtées.", Toast.LENGTH_SHORT).show()
     }
-
 
     private fun updateUI(sample: VehicleDataSample) {
         tvSpeed.text = "Vitesse: ${sample.speedKmh.toInt()} km/h"
